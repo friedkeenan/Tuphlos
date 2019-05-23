@@ -320,7 +320,9 @@ MTPContainer::MTPContainer() {
 
 
 MTPContainer::~MTPContainer() {
+    printf("BEFORE FREE\n");
     free(this->data);
+    printf("AFTER FREE\n");
 }
 
 void MTPContainer::read(void *buffer, size_t size) {

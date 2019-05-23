@@ -5,7 +5,7 @@ namespace fs = std::filesystem;
 
 #include <switch.h>
 
-enum MTPOperationCode {
+enum MTPOperationCode : u16 {
     OperationGetDeviceInfo = 0x1001,
     OperationOpenSession,
     OperationCloseSession,
@@ -43,7 +43,7 @@ enum MTPOperationCode {
     OperationSkip = 0x9820,
 };
 
-enum MTPResponseCode {
+enum MTPResponseCode : u16 {
     ResponseUndefined = 0x2000,
     ResponseOk,
     ResponseGeneralError,
@@ -89,7 +89,7 @@ enum MTPResponseCode {
     ResponseObjectPropNotSupported,
 };
 
-enum MTPEventCode {
+enum MTPEventCode : u16 {
     EventUndefined = 0x4000,
     EventCancelTransaction,
     EventObjectAdded,
@@ -110,7 +110,7 @@ enum MTPEventCode {
     EventObjectReferencesChanged,
 };
 
-enum MTPDevicePropertyCode {
+enum MTPDevicePropertyCode : u16 {
     PropertyUndefined = 0x5000,
     PropertyBatteryLevel,
     PropertyFunctionalMode,
@@ -155,12 +155,12 @@ enum MTPDevicePropertyCode {
     PropertyPerceivedDeviceType,
 };
 
-enum MTPObjectFormatCode { // I would add all of them but I don't hate myself *that* much
+enum MTPObjectFormatCode : u16 { // I would add all of them but I don't hate myself *that* much
     FormatUndefined = 0x3000,
     FormatAssociation,
 };
 
-enum MTPContainerType {
+enum MTPContainerType : u16 {
     ContainerTypeUndefined,
     ContainerTypeOperation,
     ContainerTypeData,
