@@ -16,6 +16,8 @@ UsbDsEndpoint *g_endpoint_in, *g_endpoint_out, *g_endpoint_interr;
 
 bool g_initialized = false;
 
+/* Lots of low level USB stuff taken from libnx and Atmosphere's tma_usb_comms */
+
 static Result _usbCommsInterfaceInit1x() {
     Result rc = 0;
 
