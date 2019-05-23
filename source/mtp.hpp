@@ -239,9 +239,8 @@ class MTPResponder {
         Result write(const void *buffer, size_t size);
 
         MTPContainer readContainer();
-        Result writeContainer(MTPContainer cont);
+        Result writeContainer(MTPContainer &cont);
 
-        MTPOperation containerToOperation(MTPContainer cont);
         MTPContainer createDataContainer(MTPOperation op);
         MTPResponse parseOperation(MTPOperation op);
         MTPContainer createResponseContainer(MTPResponse resp);

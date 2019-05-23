@@ -9,6 +9,8 @@
 
 #include <dirent.h>
 
+#define DEBUG_PRINT(x, ...) (printf("[DEBUG] %s:%d | " x "\n", __PRETTY_FUNCTION__, __LINE__ __VA_OPT__(,) __VA_ARGS__))
+
 #define BUF_SIZE 0x400
 
 UsbDsInterface *g_interface;
@@ -320,9 +322,9 @@ MTPContainer::MTPContainer() {
 
 
 MTPContainer::~MTPContainer() {
-    printf("BEFORE FREE\n");
+    DEBUG_PRINT("BEFORE FREE");
     free(this->data);
-    printf("AFTER FREE\n");
+    DEBUG_PRINT("AFTER FREE");
 }
 
 void MTPContainer::read(void *buffer, size_t size) {
@@ -334,7 +336,7 @@ void MTPContainer::read(void *buffer, size_t size) {
 }
 
 void MTPContainer::write(const void *buffer, size_t size) {
-    printf("WRITE SIZE: 0x%lx\n", size);
+    DEBUG_PRINT("WRITE SIZE: 0x%lx", size);
     this->data = (u8 *) realloc(this->data, this->header.length - sizeof(MTPContainerHeader) + size);
     memcpy(this->data + this->header.length - sizeof(MTPContainerHeader), buffer, size);
     this->header.length += size;
@@ -413,7 +415,7 @@ MTPOperation MTPContainer::toOperation() {
         op.transaction_id = this->header.transaction_id;
         for(size_t i=0; i < 5*sizeof(u32) && i < this->header.length - sizeof(this->header); i+=sizeof(u32)) {
             u32 param = this->readU32();
-            printf("PARAM: 0x%x\n", param);
+            DEBUG_PRINT("PARAM: 0x%x", param);
             op.params.push_back(param);
         }
     }
@@ -438,21 +440,21 @@ MTPResponder::~MTPResponder() {
 }
 
 Result MTPResponder::loop() {
-    printf("READ CONTAINER\n");
+    DEBUG_PRINT("READ CONTAINER");
     MTPContainer cont = this->readContainer();
-    printf("READ CONTAINER DONE\n");
+    DEBUG_PRINT("READ CONTAINER DONE");
 
-    printf("TO OPERATION\n");
+    DEBUG_PRINT("TO OPERATION");
     MTPOperation op = cont.toOperation();
-    printf("OPERATION: 0x%x %ld\n", op.code, op.params.size());
+    DEBUG_PRINT("OPERATION: 0x%x %ld", op.code, op.params.size());
     MTPResponse resp = this->parseOperation(op);
-    printf("AFTER PARSE OPERATION\n");
-    printf("RESPONSE: 0x%x %ld\n", resp.code, resp.params.size());
+    DEBUG_PRINT("AFTER PARSE OPERATION");
+    DEBUG_PRINT("RESPONSE: 0x%x %ld", resp.code, resp.params.size());
     cont = this->createResponseContainer(resp);
 
-    printf("BEFORE WRITE CONTAINER\n");
+    DEBUG_PRINT("BEFORE WRITE CONTAINER");
     this->writeContainer(cont);
-    printf("AFTER WRITE CONTAINER\n");
+    DEBUG_PRINT("AFTER WRITE CONTAINER");
     return 0;
 }
 
@@ -535,7 +537,7 @@ MTPContainer MTPResponder::readContainer() {
     return cont;
 }
 
-Result MTPResponder::writeContainer(MTPContainer cont) {
+Result MTPResponder::writeContainer(MTPContainer &cont) {
     Result rc = this->write(&cont.header, sizeof(cont.header));
     if (R_FAILED(rc))
         return rc;
@@ -545,24 +547,24 @@ Result MTPResponder::writeContainer(MTPContainer cont) {
 }
 
 u32 MTPResponder::getObjectHandle(fs::path object) {
-    printf("GETTING HANDLE\n");
+    DEBUG_PRINT("GETTING HANDLE");
     u32 handle;
     for(handle=1; handle <= this->object_handles.size(); handle++) { // Object handle of zero is reserved
         if (this->object_handles[handle] == object) {
-            printf("BREAK\n");
+            DEBUG_PRINT("BREAK");
             break;
         }
     }
 
-    printf("HANDLE: 0x%x\n", handle);
+    DEBUG_PRINT("HANDLE: 0x%x", handle);
 
     if (handle == this->object_handles.size() + 1) {
-        printf("INSERT\n");
+        DEBUG_PRINT("INSERT");
         this->object_handles.insert({handle, object});
-        printf("DONE INSERT\n");
+        DEBUG_PRINT("DONE INSERT");
     }
 
-    printf("RETURN\n");
+    DEBUG_PRINT("RETURN");
     return handle;
 }
 
@@ -594,7 +596,7 @@ MTPResponse MTPResponder::parseOperation(MTPOperation op) {
             break;
     }
 
-    printf("BEFORE RET RESP\n");
+    DEBUG_PRINT("BEFORE RET RESP");
     return resp;
 }
 
@@ -669,13 +671,13 @@ void MTPResponder::GetDeviceInfo(MTPOperation op, MTPResponse *resp) {
     cont.write(u"1.0"); // Device version
     cont.write(u"SerialNumber"); // Serial number
 
-    printf("BEFORE WRITE CONTAINER\n");
+    DEBUG_PRINT("BEFORE WRITE CONTAINER");
     this->writeContainer(cont);
-    printf("AFTER WRITE CONTAINER\n");
+    DEBUG_PRINT("AFTER WRITE CONTAINER");
 
     resp->code = ResponseOk;
 
-    printf("END GetDeviceInfo\n"); // This gets printed but it still crashes afterward
+    DEBUG_PRINT("END GetDeviceInfo"); // This gets printed but it still crashes afterward
 }
 
 void MTPResponder::OpenSession(MTPOperation op, MTPResponse *resp) {
@@ -741,7 +743,7 @@ void MTPResponder::GetStorageInfo(MTPOperation op, MTPResponse *resp) {
 }
 
 void MTPResponder::GetObjectHandles(MTPOperation op, MTPResponse *resp) {
-    printf("GET OBJECT HANDLES\n");
+    DEBUG_PRINT("GET OBJECT HANDLES");
     auto info = this->storages[op.params[0]];
 
     MTPContainer cont = this->createDataContainer(op);
@@ -753,51 +755,51 @@ void MTPResponder::GetObjectHandles(MTPOperation op, MTPResponse *resp) {
         dir = info.first + ":/";
     else
         dir = this->object_handles[op.params[2]];
-    printf("DIR: %s\n", dir.c_str());
+    DEBUG_PRINT("DIR: %s", dir.c_str());
 
     for (const auto & entry : fs::directory_iterator(dir)) {
-        printf("ITERATE\n");
+        DEBUG_PRINT("ITERATE");
 
-        printf("PATH\n");
+        DEBUG_PRINT("PATH");
         fs::path path = entry.path();
 
-        printf("GET HANDLE\n");
+        DEBUG_PRINT("GET HANDLE");
         u32 handle = this->getObjectHandle(path);
-        printf("OBJECT: 0x%x %s\n", handle, path.c_str());
+        DEBUG_PRINT("OBJECT: 0x%x %s", handle, path.c_str());
 
-        printf("BEFORE PUSH BACK\n");
+        DEBUG_PRINT("BEFORE PUSH BACK");
         handles.push_back(handle);
-        printf("AFTER PUSH BACK\n");
+        DEBUG_PRINT("AFTER PUSH BACK");
 
-        printf("DONE ITERATE\n");
+        DEBUG_PRINT("DONE ITERATE");
     }
-    printf("DONE WITH FOR\n");
+    DEBUG_PRINT("DONE WITH FOR");
 
-    /*printf("BEFORE OPEN DIR: %s\n", dir.c_str());
+    /*DEBUG_PRINT("BEFORE OPEN DIR: %s", dir.c_str());
     DIR *dir_handle = opendir(dir.c_str()); // This just flat out fails for some reason
-    printf("AFTER OPEN DIR\n");
+    DEBUG_PRINT("AFTER OPEN DIR");
     if (dir_handle == NULL){
-        printf("WOOPSIE\n");
+        DEBUG_PRINT("WOOPSIE");
         return;
     }
     struct dirent *entry;
     while ((entry = readdir(dir_handle))) {
-        printf("ITERATE\n");
+        DEBUG_PRINT("ITERATE");
 
         fs::path path = dir + entry->d_name;
 
         u32 handle = this->getObjectHandle(path);
 
-        printf("OBJECT: 0x%x %s\n", handle, path.c_str());
+        DEBUG_PRINT("OBJECT: 0x%x %s", handle, path.c_str());
 
-        printf("BEFORE PUSH BACK\n");
+        DEBUG_PRINT("BEFORE PUSH BACK");
         handles.push_back(handle);
-        printf("AFTER PUSH BACK\n");
+        DEBUG_PRINT("AFTER PUSH BACK");
 
-        printf("DONE ITERATE\n");
+        DEBUG_PRINT("DONE ITERATE");
     }
     closedir(dir_handle);
-    printf("CLOSE DIR\n");*/
+    DEBUG_PRINT("CLOSE DIR");*/
 
     cont.write(handles);
     this->writeContainer(cont);
