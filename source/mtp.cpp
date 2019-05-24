@@ -6,8 +6,7 @@
 
 #include <malloc.h>
 #include <stdio.h>
-
-#include <dirent.h>
+#include <sys/statvfs.h>
 
 #define DEBUG_PRINT(x, ...) (printf("[DEBUG] %s:%d | " x "\n", __PRETTY_FUNCTION__, __LINE__ __VA_OPT__(,) __VA_ARGS__))
 
@@ -723,9 +722,10 @@ void MTPResponder::GetStorageInfo(MTPOperation op, MTPResponse *resp) {
     else 
         cont.write((u16) 1);
 
+    cont.write((u16) 2); // Filesystem Type
     cont.write((u16) 2); // Access Capability
 
-    FsFileSystem *dev = fsdevGetDeviceFileSystem(info.first.c_str());
+    /*FsFileSystem *dev = fsdevGetDeviceFileSystem(info.first.c_str());
     
     u64 total, free;
     Result rc1 = fsFsGetTotalSpace(dev, "/", &total);
@@ -734,7 +734,16 @@ void MTPResponder::GetStorageInfo(MTPOperation op, MTPResponse *resp) {
     cont.write(total); // Max capacity
     cont.write(free); // Free Space in bytes
 
-    fsFsClose(dev);
+    fsFsClose(dev);*/
+
+    struct statvfs stat;
+    int rc = statvfs((info.first + ":/").c_str(), &stat);
+    u64 total = stat.f_bsize * stat.f_blocks;
+    u64 free = stat.f_bsize * stat.f_bfree;
+    DEBUG_PRINT("TOTAL: %#lx; FREE: %#lx; ERROR: %d", total, free, rc);
+
+    cont.write(total); // Max Capacity
+    cont.write(free); // Free Space in bytes
 
     cont.write((u32) 0xFFFFFFFF); // Free space in objects
     cont.write(info.second); // Storage Description
