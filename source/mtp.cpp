@@ -393,8 +393,10 @@ void MTPContainer::write(std::u16string var) {
     if (var.empty()) {
         this->write((u8) 0);
     } else {
-        this->write((u8) (var.length() + 1));
-        this->write(var.c_str(), var.length() + 1);
+        this->write((u8) (var.size()));
+        for (size_t i=0; i<var.size(); i++) {
+            this->write((u16) var[i]);
+        }
     }
 }
 
@@ -537,12 +539,21 @@ MTPContainer MTPResponder::readContainer() {
 }
 
 Result MTPResponder::writeContainer(MTPContainer &cont) {
-    Result rc = this->write(&cont.header, sizeof(cont.header));
+    DEBUG_PRINT("WRITE CONTAINER: %#x", cont.header.length);
+
+    memcpy(this->write_buffer, &cont.header, sizeof(cont.header));
+    memcpy(this->write_buffer + sizeof(cont.header), cont.data, cont.header.length - sizeof(cont.header));
+
+    Result rc = UsbXfer(g_endpoint_in, NULL, this->write_buffer, cont.header.length);
+
+    return rc;
+
+    /*Result rc = this->write(&cont.header, sizeof(cont.header));
     if (R_FAILED(rc))
         return rc;
     rc = this->write(cont.data, cont.header.length - sizeof(cont.header));
 
-    return rc;
+    return rc;*/
 }
 
 u32 MTPResponder::getObjectHandle(fs::path object) {
@@ -717,8 +728,9 @@ void MTPResponder::GetStorageInfo(MTPOperation op, MTPResponse *resp) {
     FsFileSystem *dev = fsdevGetDeviceFileSystem(info.first.c_str());
     
     u64 total, free;
-    fsFsGetTotalSpace(dev, "/", &total);
-    fsFsGetFreeSpace(dev, "/", &free);
+    Result rc1 = fsFsGetTotalSpace(dev, "/", &total);
+    Result rc2 = fsFsGetFreeSpace(dev, "/", &free);
+    DEBUG_PRINT("TOTAL: %#lx %#x; FREE: %#lx %#x", total, rc1, free, rc2);
     cont.write(total); // Max capacity
     cont.write(free); // Free Space in bytes
 
