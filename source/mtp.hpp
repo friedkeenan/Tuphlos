@@ -177,18 +177,15 @@ struct PACKED MTPContainerHeader {
 
 class MTPResponse {
     public:
-        MTPResponse(MTPResponseCode code);
+        MTPResponse(u16 code) : code(code) { };
         u16 code;
         u32 transaction_id;
         std::vector<u32> params;
 };
 
-class MTPOperation { // I hope there's a better way to do this
+class MTPOperation : public MTPResponse {
     public:
-        MTPOperation(MTPOperationCode code);
-        u16 code;
-        u32 transaction_id;
-        std::vector<u32> params;
+        MTPOperation(u16 code) : MTPResponse(code) { }
 };
 
 class MTPContainer {

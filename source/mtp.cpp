@@ -294,14 +294,6 @@ static void _usbCommsExit() {
     g_initialized = false;
 }
 
-MTPResponse::MTPResponse(MTPResponseCode code) {
-    this->code = code;
-}
-
-MTPOperation::MTPOperation(MTPOperationCode code) {
-    this->code = code;
-}
-
 MTPContainer::MTPContainer(MTPContainerHeader header) {
     this->header = header;
     this->data = NULL;
