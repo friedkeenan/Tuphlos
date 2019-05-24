@@ -336,7 +336,6 @@ void MTPContainer::read(void *buffer, size_t size) {
 }
 
 void MTPContainer::write(const void *buffer, size_t size) {
-    DEBUG_PRINT("WRITE SIZE: 0x%lx", size);
     this->data = (u8 *) realloc(this->data, this->header.length - sizeof(MTPContainerHeader) + size);
     memcpy(this->data + this->header.length - sizeof(MTPContainerHeader), buffer, size);
     this->header.length += size;
@@ -547,24 +546,18 @@ Result MTPResponder::writeContainer(MTPContainer &cont) {
 }
 
 u32 MTPResponder::getObjectHandle(fs::path object) {
-    DEBUG_PRINT("GETTING HANDLE");
     u32 handle;
     for(handle=1; handle <= this->object_handles.size(); handle++) { // Object handle of zero is reserved
         if (this->object_handles[handle] == object) {
-            DEBUG_PRINT("BREAK");
             break;
         }
     }
 
-    DEBUG_PRINT("HANDLE: 0x%x", handle);
+    DEBUG_PRINT("HANDLE: %#x", handle);
 
-    if (handle == this->object_handles.size() + 1) {
-        DEBUG_PRINT("INSERT");
+    if (handle == this->object_handles.size() + 1)
         this->object_handles.insert({handle, object});
-        DEBUG_PRINT("DONE INSERT");
-    }
 
-    DEBUG_PRINT("RETURN");
     return handle;
 }
 
@@ -676,8 +669,6 @@ void MTPResponder::GetDeviceInfo(MTPOperation op, MTPResponse *resp) {
     DEBUG_PRINT("AFTER WRITE CONTAINER");
 
     resp->code = ResponseOk;
-
-    DEBUG_PRINT("END GetDeviceInfo"); // This gets printed but it still crashes afterward
 }
 
 void MTPResponder::OpenSession(MTPOperation op, MTPResponse *resp) {
@@ -808,13 +799,17 @@ void MTPResponder::GetObjectHandles(MTPOperation op, MTPResponse *resp) {
 }
 
 void MTPResponder::GetObjectInfo(MTPOperation op, MTPResponse *resp) {
+    DEBUG_PRINT("GetObjectInfo");
     MTPContainer cont = this->createDataContainer(op);
 
     fs::path path = this->object_handles[op.params[0]];
+    DEBUG_PRINT("PATH: %s", path.c_str());
 
-    std::string drive = path.root_name().string();
-    drive.resize(drive.size() - 1);
+    std::string drive = path.string();
+    drive.resize(drive.find(":"));
+    //drive.resize(drive.size() - 1);
     drive.shrink_to_fit();
+    DEBUG_PRINT("DRIVE: %s", drive.c_str());
 
     u32 storage_id;
     for (auto store : this->storages) {
@@ -823,9 +818,15 @@ void MTPResponder::GetObjectInfo(MTPOperation op, MTPResponse *resp) {
             break;
         }
     }
+    DEBUG_PRINT("STORAGE ID: %#x", storage_id);
 
     cont.write(storage_id); // Storage ID
-    cont.write((u16) FormatAssociation); // Object Format
+
+    if (fs::is_directory(path))
+        cont.write((u16) FormatAssociation); // Object Format
+    else
+        cont.write((u16) FormatUndefined);
+
     cont.write((u16) 0); // Protection Status
 
     std::error_code ec;
@@ -843,7 +844,9 @@ void MTPResponder::GetObjectInfo(MTPOperation op, MTPResponse *resp) {
     cont.write((u32) 0); // Image Bit Depth
 
     fs::path parent = path.parent_path();
-    if (parent.string() == this->storages[storage_id].first + ":/")
+    DEBUG_PRINT("FILENAME: %s", path.filename().c_str());
+    DEBUG_PRINT("PARENT: %s", parent.c_str());
+    if (parent.string() == this->storages[storage_id].first + ":")
         cont.write((u32) 0); // Parent Object
     else
         cont.write(this->getObjectHandle(parent.string()));
