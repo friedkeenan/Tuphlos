@@ -7,6 +7,7 @@
 #include <malloc.h>
 #include <stdio.h>
 #include <sys/statvfs.h>
+#include <sys/stat.h>
 
 #define DEBUG_PRINT(x, ...) (printf("[DEBUG] %s:%d | " x "\n", __PRETTY_FUNCTION__, __LINE__ __VA_OPT__(,) __VA_ARGS__))
 
@@ -532,13 +533,6 @@ Result MTPResponder::writeContainer(MTPContainer &cont) {
     Result rc = UsbXfer(g_endpoint_in, NULL, this->write_buffer, cont.header.length);
 
     return rc;
-
-    /*Result rc = this->write(&cont.header, sizeof(cont.header));
-    if (R_FAILED(rc))
-        return rc;
-    rc = this->write(cont.data, cont.header.length - sizeof(cont.header));
-
-    return rc;*/
 }
 
 u32 MTPResponder::getObjectHandle(fs::path object) {
@@ -649,11 +643,13 @@ void MTPResponder::GetDeviceInfo(MTPOperation op, MTPResponse *resp) {
     });
     cont.write(properties_supported);
 
+    cont.write((u32) 0); // Capture formats
+
     std::vector<u16> formats_supported({
         FormatUndefined,
         FormatAssociation,
     });
-    cont.write(formats_supported);
+    cont.write(formats_supported); // Playback formats
 
     cont.write(u"Nintendo"); // Manufacturer
     cont.write(u"Nintendo Switch"); // Model
@@ -827,8 +823,21 @@ void MTPResponder::GetObjectInfo(MTPOperation op, MTPResponse *resp) {
     cont.write((u32) 0); // Sequence Number
     cont.write(path.filename().u16string()); // Filename
 
-    cont.write(u"20190505T000000"); // Date Created
-    cont.write(u"20190505T000000"); // Date Modified
+    struct stat path_stat;
+    stat(path.c_str(), &path_stat);
+
+    char date[16];
+    char16_t date16[16];
+
+    strftime(date, 16, "%Y%m%dT%H%M%S", localtime(&path_stat.st_ctime));
+    DEBUG_PRINT("CREATED: %s", date);
+    std::copy(date, date + 16, date16);
+    cont.write(date16); // Date created
+
+    strftime(date, 16, "%Y%m%dT%H%M%S", localtime(&path_stat.st_mtime));
+    DEBUG_PRINT("MODIFIED: %s", date);
+    std::copy(date, date + 16, date16);
+    cont.write(date16); // Date modified
 
     cont.write(u""); // Keywords
 
