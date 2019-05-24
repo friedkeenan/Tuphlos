@@ -255,4 +255,5 @@ class MTPResponder {
         void GetStorageInfo(MTPOperation op, MTPResponse *resp);
         void GetObjectHandles(MTPOperation op, MTPResponse *resp);
         void GetObjectInfo(MTPOperation op, MTPResponse *resp);
+        void GetDevicePropValue(MTPOperation op, MTPResponse *resp);
 };

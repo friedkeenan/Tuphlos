@@ -314,9 +314,7 @@ MTPContainer::MTPContainer() {
 
 
 MTPContainer::~MTPContainer() {
-    DEBUG_PRINT("BEFORE FREE");
     free(this->data);
-    DEBUG_PRINT("AFTER FREE");
 }
 
 void MTPContainer::read(void *buffer, size_t size) {
@@ -514,8 +512,6 @@ MTPContainer MTPResponder::readContainer() {
     MTPContainerHeader header;
 
     this->read(&header, sizeof(header));
-    /*if (R_FAILED(rc))
-        return rc;*/
 
     MTPContainer cont(header);
     cont.data = (u8 *) malloc(cont.header.length - sizeof(MTPContainerHeader));
@@ -542,8 +538,6 @@ u32 MTPResponder::getObjectHandle(fs::path object) {
             break;
         }
     }
-
-    DEBUG_PRINT("HANDLE: %#x", handle);
 
     if (handle == this->object_handles.size() + 1)
         this->object_handles.insert({handle, object});
@@ -576,6 +570,9 @@ MTPResponse MTPResponder::parseOperation(MTPOperation op) {
             break;
         case OperationGetObjectInfo:
             this->GetObjectInfo(op, &resp);
+            break;
+        case OperationGetDevicePropValue:
+            this->GetDevicePropValue(op, &resp);
             break;
     }
 
@@ -844,4 +841,17 @@ void MTPResponder::GetObjectInfo(MTPOperation op, MTPResponse *resp) {
     this->writeContainer(cont);
 
     resp->code = ResponseOk;
+}
+
+void MTPResponder::GetDevicePropValue(MTPOperation op, MTPResponse *resp) {
+    resp->code = ResponseDevicePropNotSupported;
+
+    switch (op.params[0]) {
+        case PropertyDeviceFriendlyName:
+            MTPContainer cont = this->createDataContainer(op);
+            cont.write(u"Nintendo Switch");
+            this->writeContainer(cont);
+            resp->code = ResponseOk;
+            break;
+    }
 }
