@@ -16,22 +16,16 @@ int main(int argc, char **argv) {
     consoleUpdate(NULL);
 
     MTPResponder responder;
-    printf("INSERT STORAGE\n");
     responder.insertStorage(0x00010001, "sdmc", u"SD Card");
-    printf("INSERT STORAGE DONE\n");
 
     while (appletMainLoop()) {
         hidScanInput();
 
-        u64 kDown = hidKeysDown(CONTROLLER_P1_AUTO);
+        u64 kDown = hidKeysDown(CONTROLLER_P1_AUTO); // Probably need to put this in a separate thread
         if (kDown & KEY_PLUS)
             break;
 
-        Result rc = responder.loop();
-        if (R_FAILED(rc)) {
-            printf("An error occured: 0x%x\n", rc);
-            consoleUpdate(NULL);
-        }
+        responder.loop();
     }
 
     socketExit();

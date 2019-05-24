@@ -223,7 +223,7 @@ class MTPResponder {
         MTPResponder();
         ~MTPResponder();
 
-        Result loop();
+        void loop();
 
         void insertStorage(const u32 id, std::string drive, std::u16string name);
     private:

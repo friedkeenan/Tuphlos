@@ -431,23 +431,17 @@ MTPResponder::~MTPResponder() {
     _usbCommsExit();
 }
 
-Result MTPResponder::loop() {
-    DEBUG_PRINT("READ CONTAINER");
+void MTPResponder::loop() {
     MTPContainer cont = this->readContainer();
-    DEBUG_PRINT("READ CONTAINER DONE");
 
-    DEBUG_PRINT("TO OPERATION");
     MTPOperation op = cont.toOperation();
-    DEBUG_PRINT("OPERATION: 0x%x %ld", op.code, op.params.size());
-    MTPResponse resp = this->parseOperation(op);
-    DEBUG_PRINT("AFTER PARSE OPERATION");
-    DEBUG_PRINT("RESPONSE: 0x%x %ld", resp.code, resp.params.size());
-    cont = this->createResponseContainer(resp);
+    DEBUG_PRINT("OPERATION: %#x %ld", op.code, op.params.size());
 
-    DEBUG_PRINT("BEFORE WRITE CONTAINER");
+    MTPResponse resp = this->parseOperation(op);
+    DEBUG_PRINT("RESPONSE: %#x %ld", resp.code, resp.params.size());
+
+    cont = this->createResponseContainer(resp);
     this->writeContainer(cont);
-    DEBUG_PRINT("AFTER WRITE CONTAINER");
-    return 0;
 }
 
 void MTPResponder::insertStorage(const u32 id, const std::string drive, const std::u16string name) {
@@ -666,17 +660,13 @@ void MTPResponder::GetDeviceInfo(MTPOperation op, MTPResponse *resp) {
     cont.write(u"1.0"); // Device version
     cont.write(u"SerialNumber"); // Serial number
 
-    DEBUG_PRINT("BEFORE WRITE CONTAINER");
     this->writeContainer(cont);
-    DEBUG_PRINT("AFTER WRITE CONTAINER");
 
     resp->code = ResponseOk;
 }
 
 void MTPResponder::OpenSession(MTPOperation op, MTPResponse *resp) {
-    /*if (op.params[0] == 0) {
-        resp->code = ResponseInvalidParameter;
-    } else */if (this->session_id == 0) {
+    if (this->session_id == 0) {
         this->session_id = op.params[0];
         resp->code = ResponseOk;
     } else {
@@ -716,17 +706,6 @@ void MTPResponder::GetStorageInfo(MTPOperation op, MTPResponse *resp) {
 
     cont.write((u16) 2); // Filesystem Type
     cont.write((u16) 2); // Access Capability
-
-    /*FsFileSystem *dev = fsdevGetDeviceFileSystem(info.first.c_str());
-    
-    u64 total, free;
-    Result rc1 = fsFsGetTotalSpace(dev, "/", &total);
-    Result rc2 = fsFsGetFreeSpace(dev, "/", &free);
-    DEBUG_PRINT("TOTAL: %#lx %#x; FREE: %#lx %#x", total, rc1, free, rc2);
-    cont.write(total); // Max capacity
-    cont.write(free); // Free Space in bytes
-
-    fsFsClose(dev);*/
 
     struct statvfs stat;
     int rc = statvfs((info.first + ":/").c_str(), &stat);
@@ -779,32 +758,6 @@ void MTPResponder::GetObjectHandles(MTPOperation op, MTPResponse *resp) {
     }
     DEBUG_PRINT("DONE WITH FOR");
 
-    /*DEBUG_PRINT("BEFORE OPEN DIR: %s", dir.c_str());
-    DIR *dir_handle = opendir(dir.c_str()); // This just flat out fails for some reason
-    DEBUG_PRINT("AFTER OPEN DIR");
-    if (dir_handle == NULL){
-        DEBUG_PRINT("WOOPSIE");
-        return;
-    }
-    struct dirent *entry;
-    while ((entry = readdir(dir_handle))) {
-        DEBUG_PRINT("ITERATE");
-
-        fs::path path = dir + entry->d_name;
-
-        u32 handle = this->getObjectHandle(path);
-
-        DEBUG_PRINT("OBJECT: 0x%x %s", handle, path.c_str());
-
-        DEBUG_PRINT("BEFORE PUSH BACK");
-        handles.push_back(handle);
-        DEBUG_PRINT("AFTER PUSH BACK");
-
-        DEBUG_PRINT("DONE ITERATE");
-    }
-    closedir(dir_handle);
-    DEBUG_PRINT("CLOSE DIR");*/
-
     cont.write(handles);
     this->writeContainer(cont);
 
@@ -820,7 +773,6 @@ void MTPResponder::GetObjectInfo(MTPOperation op, MTPResponse *resp) {
 
     std::string drive = path.string();
     drive.resize(drive.find(":"));
-    //drive.resize(drive.size() - 1);
     drive.shrink_to_fit();
     DEBUG_PRINT("DRIVE: %s", drive.c_str());
 
@@ -835,14 +787,20 @@ void MTPResponder::GetObjectInfo(MTPOperation op, MTPResponse *resp) {
 
     cont.write(storage_id); // Storage ID
 
-    if (fs::is_directory(path))
+    std::error_code ec;
+    DEBUG_PRINT("CHECK DIRECTORY");
+    bool is_dir = fs::is_directory(path, ec);
+    if (ec.value() != 0)
+        is_dir = false;
+
+    if (is_dir)
         cont.write((u16) FormatAssociation); // Object Format
     else
         cont.write((u16) FormatUndefined);
 
     cont.write((u16) 0); // Protection Status
 
-    std::error_code ec;
+    DEBUG_PRINT("FILE SIZE");
     u32 size = fs::file_size(path, ec);
     if (ec.value() < 0)
         size = 0;
