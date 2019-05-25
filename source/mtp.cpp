@@ -3,6 +3,7 @@
 #include <cstring>
 #include <ctime>
 #include <iomanip>
+#include <fstream>
 
 #include <malloc.h>
 #include <stdio.h>
@@ -11,7 +12,7 @@
 
 #define DEBUG_PRINT(x, ...) (printf("[DEBUG] %s:%d | " x "\n", __PRETTY_FUNCTION__, __LINE__ __VA_OPT__(,) __VA_ARGS__))
 
-#define BUF_SIZE 0x400
+#define BUF_SIZE 0x200UL
 
 UsbDsInterface *g_interface;
 UsbDsEndpoint *g_endpoint_in, *g_endpoint_out, *g_endpoint_interr;
@@ -314,7 +315,9 @@ MTPContainer::MTPContainer() {
 
 
 MTPContainer::~MTPContainer() {
+    DEBUG_PRINT("BEFORE FREE");
     free(this->data);
+    DEBUG_PRINT("AFTER_FREE");
 }
 
 void MTPContainer::read(void *buffer, size_t size) {
@@ -331,57 +334,29 @@ void MTPContainer::write(const void *buffer, size_t size) {
     this->header.length += size;
 }
 
-u8 MTPContainer::readU8() {
-    u8 var;
-    this->read(&var, sizeof(var));
-    return var;
-}
-
-u16 MTPContainer::readU16() {
-    u16 var;
-    this->read(&var, sizeof(var));
-    return var;
-}
-
-u32 MTPContainer::readU32() {
-    u32 var;
-    this->read(&var, sizeof(var));
-    return var;
-}
-
-u64 MTPContainer::readU64() {
-    u64 var;
+template<typename T>
+std::enable_if_t<std::is_arithmetic_v<T>, T> MTPContainer::read() {
+    T var;
     this->read(&var, sizeof(var));
     return var;
 }
 
 std::u16string MTPContainer::readString() {
-    u8 length = this->readU8();
+    u8 length = this->read<u8>();
     char16_t c_str[length];
     this->read(c_str, length);
     std::u16string var = c_str;
     return var;
 }
 
-void MTPContainer::write(u8 var) {
-    this->write(&var, sizeof(var));
-}
-
-void MTPContainer::write(u16 var) {
-    this->write(&var, sizeof(var));
-}
-
-void MTPContainer::write(u32 var) {
-    this->write(&var, sizeof(var));
-}
-
-void MTPContainer::write(u64 var) {
+template<typename T>
+std::enable_if_t<std::is_arithmetic_v<T>, void> MTPContainer::write(T var) {
     this->write(&var, sizeof(var));
 }
 
 void MTPContainer::write(std::u16string var) {
     if (var.empty()) {
-        this->write((u8) 0);
+        this->write<u8>(0);
     } else {
         this->write((u8) (var.size()));
         for (size_t i=0; i<var.size(); i++) {
@@ -405,7 +380,7 @@ MTPOperation MTPContainer::toOperation() {
         op.code = this->header.code;
         op.transaction_id = this->header.transaction_id;
         for(size_t i=0; i < 5*sizeof(u32) && i < this->header.length - sizeof(this->header); i+=sizeof(u32)) {
-            u32 param = this->readU32();
+            u32 param = this->read<u32>();
             DEBUG_PRINT("PARAM: 0x%x", param);
             op.params.push_back(param);
         }
@@ -449,6 +424,7 @@ void MTPResponder::insertStorage(const u32 id, const std::string drive, const st
 
 /* Taken from Atmosphere's tma_usb_comms */
 Result MTPResponder::UsbXfer(UsbDsEndpoint *ep, size_t *out_xferd, void *buf, size_t size) {
+    DEBUG_PRINT("XFER: %#lx", size);
     Result rc = 0;
     u32 urbId = 0;
     u32 total_xferd = 0;
@@ -467,7 +443,7 @@ Result MTPResponder::UsbXfer(UsbDsEndpoint *ep, size_t *out_xferd, void *buf, si
         if (R_FAILED(rc)) return rc;
 
         rc = usbDsParseReportData(&reportdata, urbId, NULL, &total_xferd);
-        if (R_FAILED(rc)) return rc;   
+        if (R_FAILED(rc)) return rc;
     }
     
     if (out_xferd) *out_xferd = total_xferd;
@@ -484,7 +460,7 @@ Result MTPResponder::read(void *buffer, size_t size) {
     if (this->read_cursor >= this->read_transferred) {
         this->read_transferred = 0;
         this->read_cursor = 0;
-        rc = UsbXfer(g_endpoint_out, &this->read_transferred, this->read_buffer, 0x400 /*size*/);
+        rc = UsbXfer(g_endpoint_out, &this->read_transferred, this->read_buffer, BUF_SIZE /*size*/);
         if (R_FAILED(rc))
             return rc;
     }
@@ -526,7 +502,7 @@ Result MTPResponder::writeContainer(MTPContainer &cont) {
     memcpy(this->write_buffer, &cont.header, sizeof(cont.header));
     memcpy(this->write_buffer + sizeof(cont.header), cont.data, cont.header.length - sizeof(cont.header));
 
-    Result rc = UsbXfer(g_endpoint_in, NULL, this->write_buffer, cont.header.length);
+    Result rc = UsbXfer(g_endpoint_in, NULL, this->write_buffer, std::min(cont.header.length, (u32) BUF_SIZE));
 
     return rc;
 }
@@ -574,9 +550,11 @@ MTPResponse MTPResponder::parseOperation(MTPOperation op) {
         case OperationGetDevicePropValue:
             this->GetDevicePropValue(op, &resp);
             break;
+        case OperationGetObject:
+            this->GetObject(op, &resp);
+            break;
     }
 
-    DEBUG_PRINT("BEFORE RET RESP");
     return resp;
 }
 
@@ -609,11 +587,11 @@ MTPContainer MTPResponder::createResponseContainer(MTPResponse resp) {
 
 void MTPResponder::GetDeviceInfo(MTPOperation op, MTPResponse *resp) {
     MTPContainer cont = this->createDataContainer(op);
-    cont.write((u16) 100); // Standard Version
-    cont.write((u32) 0xFFFFFFFF); // Vendor Extension ID
-    cont.write((u16) 100); // MTP Version
+    cont.write<u16>(100); // Standard Version
+    cont.write<u32>(0xFFFFFFFF); // Vendor Extension ID
+    cont.write<u16>(100); // MTP Version
     cont.write(u"microsoft.com: 1.0;"); // Extensions
-    cont.write((u16) 0); // Functional mode
+    cont.write<u16>(0); // Functional mode
 
     std::vector<u16> operations_supported({
         OperationGetDeviceInfo,
@@ -621,26 +599,24 @@ void MTPResponder::GetDeviceInfo(MTPOperation op, MTPResponse *resp) {
         OperationCloseSession,
         OperationGetStorageIds,
         OperationGetStorageInfo,
-        OperationGetNumObjects,
         OperationGetObjectHandles,
         OperationGetObjectInfo,
         OperationGetObject,
         OperationDeleteObject,
         OperationSendObjectInfo,
         OperationSendObject,
-        OperationGetDevicePropDesc,
         OperationGetDevicePropValue,
     });
     cont.write(operations_supported);
 
-    cont.write((u32) 0); // Events supported :(
+    cont.write<u32>(0); // Events supported :(
 
     std::vector<u16> properties_supported({
         PropertyDeviceFriendlyName,
     });
     cont.write(properties_supported);
 
-    cont.write((u32) 0); // Capture formats
+    cont.write<u32>(0); // Capture formats
 
     std::vector<u16> formats_supported({
         FormatUndefined,
@@ -693,12 +669,12 @@ void MTPResponder::GetStorageInfo(MTPOperation op, MTPResponse *resp) {
     auto info = this->storages[op.params[0]];
     
     if (info.first == "sdmc")
-        cont.write((u16) 2); // Storage type
+        cont.write<u16>(2); // Storage type
     else 
-        cont.write((u16) 1);
+        cont.write<u16>(1);
 
-    cont.write((u16) 2); // Filesystem Type
-    cont.write((u16) 2); // Access Capability
+    cont.write<u16>(2); // Filesystem Type
+    cont.write<u16>(2); // Access Capability
 
     struct statvfs stat;
     int rc = statvfs((info.first + ":/").c_str(), &stat);
@@ -709,7 +685,7 @@ void MTPResponder::GetStorageInfo(MTPOperation op, MTPResponse *resp) {
     cont.write(total); // Max Capacity
     cont.write(free); // Free Space in bytes
 
-    cont.write((u32) 0xFFFFFFFF); // Free space in objects
+    cont.write<u32>(0xFFFFFFFF); // Free space in objects
     cont.write(info.second); // Storage Description
     cont.write(info.second); // Volume Identifier
 
@@ -719,7 +695,6 @@ void MTPResponder::GetStorageInfo(MTPOperation op, MTPResponse *resp) {
 }
 
 void MTPResponder::GetObjectHandles(MTPOperation op, MTPResponse *resp) {
-    DEBUG_PRINT("GET OBJECT HANDLES");
     auto info = this->storages[op.params[0]];
 
     MTPContainer cont = this->createDataContainer(op);
@@ -734,22 +709,15 @@ void MTPResponder::GetObjectHandles(MTPOperation op, MTPResponse *resp) {
     DEBUG_PRINT("DIR: %s", dir.c_str());
 
     for (const auto & entry : fs::directory_iterator(dir)) {
-        DEBUG_PRINT("ITERATE");
-
-        DEBUG_PRINT("PATH");
         fs::path path = entry.path();
+        if (path == "sdmc:/hbmenu.nro")
+            continue;
 
-        DEBUG_PRINT("GET HANDLE");
         u32 handle = this->getObjectHandle(path);
         DEBUG_PRINT("OBJECT: 0x%x %s", handle, path.c_str());
 
-        DEBUG_PRINT("BEFORE PUSH BACK");
         handles.push_back(handle);
-        DEBUG_PRINT("AFTER PUSH BACK");
-
-        DEBUG_PRINT("DONE ITERATE");
     }
-    DEBUG_PRINT("DONE WITH FOR");
 
     cont.write(handles);
     this->writeContainer(cont);
@@ -787,11 +755,11 @@ void MTPResponder::GetObjectInfo(MTPOperation op, MTPResponse *resp) {
         is_dir = false;
 
     if (is_dir)
-        cont.write((u16) FormatAssociation); // Object Format
+        cont.write<u16>(FormatAssociation); // Object Format
     else
-        cont.write((u16) FormatUndefined);
+        cont.write<u16>(FormatUndefined);
 
-    cont.write((u16) 0); // Protection Status
+    cont.write<u16>(0); // Protection Status
 
     DEBUG_PRINT("FILE SIZE");
     u32 size = fs::file_size(path, ec);
@@ -799,25 +767,25 @@ void MTPResponder::GetObjectInfo(MTPOperation op, MTPResponse *resp) {
         size = 0;
     cont.write(size); // Object Compressed Size
 
-    cont.write((u16) FormatUndefined); // Thumb Format
-    cont.write((u32) 0); // Thumb Compressed Size
-    cont.write((u32) 0); // Thumb Pix Width
-    cont.write((u32) 0); // Thumb Pix Height
-    cont.write((u32) 0); // Image Pix Width
-    cont.write((u32) 0); // Image Pix Height
-    cont.write((u32) 0); // Image Bit Depth
+    cont.write<u16>(FormatUndefined); // Thumb Format
+    cont.write<u32>(0); // Thumb Compressed Size
+    cont.write<u32>(0); // Thumb Pix Width
+    cont.write<u32>(0); // Thumb Pix Height
+    cont.write<u32>(0); // Image Pix Width
+    cont.write<u32>(0); // Image Pix Height
+    cont.write<u32>(0); // Image Bit Depth
 
     fs::path parent = path.parent_path();
     DEBUG_PRINT("FILENAME: %s", path.filename().c_str());
     DEBUG_PRINT("PARENT: %s", parent.c_str());
     if (parent.string() == this->storages[storage_id].first + ":")
-        cont.write((u32) 0); // Parent Object
+        cont.write<u32>(0); // Parent Object
     else
         cont.write(this->getObjectHandle(parent.string()));
 
-    cont.write((u16) 1); // Association Type
-    cont.write((u32) 1); // Association Description
-    cont.write((u32) 0); // Sequence Number
+    cont.write<u16>(1); // Association Type
+    cont.write<u32>(1); // Association Description
+    cont.write<u32>(0); // Sequence Number
     cont.write(path.filename().u16string()); // Filename
 
     struct stat path_stat;
@@ -854,4 +822,51 @@ void MTPResponder::GetDevicePropValue(MTPOperation op, MTPResponse *resp) {
             resp->code = ResponseOk;
             break;
     }
+}
+
+void MTPResponder::GetObject(MTPOperation op, MTPResponse *resp) {
+
+    fs::path path = this->object_handles[op.params[0]];
+    DEBUG_PRINT("PATH: %s", path.c_str());
+
+    std::ifstream ifs(path.string(), std::ios::binary);
+
+    if (ifs.good()) {
+        MTPContainer cont = this->createDataContainer(op);
+        DEBUG_PRINT("GOOD");
+        u64 size = fs::file_size(path), pos = 0;
+        DEBUG_PRINT("SIZE: %#lx", size);
+
+        DEBUG_PRINT("BEFORE SET LENGTH");
+        cont.header.length += std::min(size, 0xFFFFFFFFUL - sizeof(MTPContainerHeader));
+        DEBUG_PRINT("AFTER SET LENGTH");
+        u64 to_read = std::min(size, BUF_SIZE - sizeof(MTPContainerHeader));
+        DEBUG_PRINT("TO READ: %#lx", to_read);
+        cont.data = (u8 *) malloc(to_read);
+        ifs.read((char *) cont.data, to_read);
+        DEBUG_PRINT("AFTER READ");
+        pos += to_read;
+        this->writeContainer(cont);
+
+        //free(cont.data);
+        //cont.data = NULL;
+
+        while (pos < size) {
+            to_read = std::min(size - pos, BUF_SIZE);
+            DEBUG_PRINT("TO READ: %#lx; POS: %#lx", to_read, pos);
+            ifs.read((char *) this->write_buffer, to_read);
+            pos += to_read;
+            Result rc = this->UsbXfer(g_endpoint_in, NULL, this->write_buffer, to_read);
+            DEBUG_PRINT("WRITE RC: %#x", rc);
+        }
+
+        DEBUG_PRINT("BEFORE SET RESP CODE");
+        resp->code = ResponseOk;
+        DEBUG_PRINT("END GOOD");
+    } else {
+        resp->code = ResponseAccessDenied;
+    }
+    DEBUG_PRINT("BEFORE CLOSE");
+    ifs.close();
+    DEBUG_PRINT("AFTER CLOSE");
 }

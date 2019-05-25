@@ -18,6 +18,11 @@ int main(int argc, char **argv) {
     MTPResponder responder;
     responder.insertStorage(0x00010001, "sdmc", u"SD Card");
 
+    FsFileSystem fs;
+    fsOpenBisFileSystem(&fs, 30, "");
+    fsdevMountDevice("user", fs);
+    responder.insertStorage(0x00020001, "user", u"User");
+
     while (appletMainLoop()) {
         hidScanInput();
 

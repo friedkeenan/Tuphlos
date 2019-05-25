@@ -202,16 +202,12 @@ class MTPContainer {
 
         size_t read_cursor;
 
-        u8 readU8();
-        u16 readU16();
-        u32 readU32();
-        u64 readU64();
+        template<typename T>
+        std::enable_if_t<std::is_arithmetic_v<T>, T> read();
         std::u16string readString();
 
-        void write(u8 var);
-        void write(u16 var);
-        void write(u32 var);
-        void write(u64 var);
+        template<typename T>
+        std::enable_if_t<std::is_arithmetic_v<T>, void> write(T var);
         void write(std::u16string var);
         template <class T> void write(std::vector<T> var);
 
@@ -256,4 +252,5 @@ class MTPResponder {
         void GetObjectHandles(MTPOperation op, MTPResponse *resp);
         void GetObjectInfo(MTPOperation op, MTPResponse *resp);
         void GetDevicePropValue(MTPOperation op, MTPResponse *resp);
+        void GetObject(MTPOperation op, MTPResponse *resp);
 };
