@@ -406,6 +406,7 @@ MTPResponder::~MTPResponder() {
 }
 
 void MTPResponder::loop() {
+    DEBUG_PRINT("LOOP");
     MTPContainer cont = this->readContainer();
 
     MTPOperation op = cont.toOperation();
@@ -433,10 +434,16 @@ Result MTPResponder::UsbXfer(UsbDsEndpoint *ep, size_t *out_xferd, void *buf, si
     if (size) {
         /* Start transfer. */
         rc = usbDsEndpoint_PostBufferAsync(ep, buf, size, &urbId);
+
         if (R_FAILED(rc)) return rc;
         
+        u64 wait;
+        if (ep == g_endpoint_in)
+            wait = 1e+6L;
+        else
+            wait = U64_MAX;
         /* Wait for transfer to complete. */
-        eventWait(&ep->CompletionEvent, U64_MAX);
+        eventWait(&ep->CompletionEvent, wait);
         eventClear(&ep->CompletionEvent);
         
         rc = usbDsEndpoint_GetReportData(ep, &reportdata);
@@ -555,6 +562,7 @@ MTPResponse MTPResponder::parseOperation(MTPOperation op) {
             break;
     }
 
+    DEBUG_PRINT("BEFORE RET RESP");
     return resp;
 }
 
@@ -832,21 +840,24 @@ void MTPResponder::GetObject(MTPOperation op, MTPResponse *resp) {
     std::ifstream ifs(path.string(), std::ios::binary);
 
     if (ifs.good()) {
-        MTPContainer cont = this->createDataContainer(op);
         DEBUG_PRINT("GOOD");
         u64 size = fs::file_size(path), pos = 0;
         DEBUG_PRINT("SIZE: %#lx", size);
-
-        DEBUG_PRINT("BEFORE SET LENGTH");
-        cont.header.length += std::min(size, 0xFFFFFFFFUL - sizeof(MTPContainerHeader));
-        DEBUG_PRINT("AFTER SET LENGTH");
         u64 to_read = std::min(size, BUF_SIZE - sizeof(MTPContainerHeader));
-        DEBUG_PRINT("TO READ: %#lx", to_read);
-        cont.data = (u8 *) malloc(to_read);
-        ifs.read((char *) cont.data, to_read);
-        DEBUG_PRINT("AFTER READ");
-        pos += to_read;
-        this->writeContainer(cont);
+
+        /* Put this in its own scope so that the MTPContainer gets dealt with */
+        {
+            MTPContainer cont = this->createDataContainer(op);
+            DEBUG_PRINT("BEFORE SET LENGTH");
+            cont.header.length += std::min(size, 0xFFFFFFFFUL - sizeof(MTPContainerHeader));
+            DEBUG_PRINT("AFTER SET LENGTH");
+            DEBUG_PRINT("TO READ: %#lx", to_read);
+            cont.data = (u8 *) malloc(to_read);
+            ifs.read((char *) cont.data, to_read);
+            DEBUG_PRINT("AFTER READ");
+            pos += to_read;
+            this->writeContainer(cont);
+        }
 
         //free(cont.data);
         //cont.data = NULL;
