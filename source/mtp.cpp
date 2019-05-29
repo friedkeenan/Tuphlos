@@ -562,6 +562,9 @@ MTPResponse MTPResponder::parseOperation(MTPOperation op) {
         case OperationGetObject:
             this->GetObject(op, &resp);
             break;
+        case OperationDeleteObject:
+            this->DeleteObject(op, &resp);
+            break;
     }
 
     DEBUG_PRINT("BEFORE RET RESP");
@@ -872,4 +875,29 @@ void MTPResponder::GetObject(MTPOperation op, MTPResponse *resp) {
         resp->code = ResponseAccessDenied;
     }
     ifs.close();
+}
+
+void MTPResponder::DeleteObject(MTPOperation op, MTPResponse *resp) {
+    if (op.params[0] == 0xFFFFFFFF) { // Sorry, but I'm not gonna let the user delete everything on a storage in one fell swoop
+        resp->code = ResponseObjectWriteProtected;
+    } else {
+        fs::path path = this->object_handles[op.params[0]];
+        DEBUG_PRINT("PATH: %s", path.c_str());
+        std::error_code ec;
+        if (fs::is_directory(path)) {
+            fs::remove_all(path, ec);
+            if (rmdir(path.c_str()) == 0)
+                ec.clear();
+
+        } else {
+            fs::remove(path, ec);
+        }
+
+        DEBUG_PRINT("ERROR: %#x %s", ec.value(), ec.message().c_str());
+
+        if (ec.value() != 0)
+            resp->code = ResponseAccessDenied;
+        else
+            resp->code = ResponseOk;
+    }
 }

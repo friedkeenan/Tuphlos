@@ -253,4 +253,5 @@ class MTPResponder {
         void GetObjectInfo(MTPOperation op, MTPResponse *resp);
         void GetDevicePropValue(MTPOperation op, MTPResponse *resp);
         void GetObject(MTPOperation op, MTPResponse *resp);
+        void DeleteObject(MTPOperation op, MTPResponse *resp);
 };
