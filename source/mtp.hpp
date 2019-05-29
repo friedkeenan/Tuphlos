@@ -204,7 +204,7 @@ class MTPContainer {
 
         template<typename T>
         std::enable_if_t<std::is_arithmetic_v<T>, T> read();
-        std::u16string readString();
+        std::u16string read();
 
         template<typename T>
         std::enable_if_t<std::is_arithmetic_v<T>, void> write(T var);

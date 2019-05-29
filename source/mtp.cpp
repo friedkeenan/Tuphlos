@@ -341,7 +341,7 @@ std::enable_if_t<std::is_arithmetic_v<T>, T> MTPContainer::read() {
     return var;
 }
 
-std::u16string MTPContainer::readString() {
+std::u16string MTPContainer::read() {
     u8 length = this->read<u8>();
     char16_t c_str[length];
     this->read(c_str, length);
