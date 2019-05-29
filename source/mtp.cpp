@@ -506,10 +506,12 @@ MTPContainer MTPResponder::readContainer() {
 Result MTPResponder::writeContainer(MTPContainer &cont) {
     DEBUG_PRINT("WRITE CONTAINER: %#x", cont.header.length);
 
-    memcpy(this->write_buffer, &cont.header, sizeof(cont.header));
-    memcpy(this->write_buffer + sizeof(cont.header), cont.data, cont.header.length - sizeof(cont.header));
+    u32 size = std::min(cont.header.length, (u32) BUF_SIZE);
 
-    Result rc = UsbXfer(g_endpoint_in, NULL, this->write_buffer, std::min(cont.header.length, (u32) BUF_SIZE));
+    memcpy(this->write_buffer, &cont.header, sizeof(cont.header));
+    memcpy(this->write_buffer + sizeof(cont.header), cont.data, size - sizeof(cont.header));
+
+    Result rc = UsbXfer(g_endpoint_in, NULL, this->write_buffer, size);
 
     return rc;
 }
@@ -840,7 +842,6 @@ void MTPResponder::GetObject(MTPOperation op, MTPResponse *resp) {
     std::ifstream ifs(path.string(), std::ios::binary);
 
     if (ifs.good()) {
-        DEBUG_PRINT("GOOD");
         u64 size = fs::file_size(path), pos = 0;
         DEBUG_PRINT("SIZE: %#lx", size);
         u64 to_read = std::min(size, BUF_SIZE - sizeof(MTPContainerHeader));
@@ -848,36 +849,27 @@ void MTPResponder::GetObject(MTPOperation op, MTPResponse *resp) {
         /* Put this in its own scope so that the MTPContainer gets dealt with */
         {
             MTPContainer cont = this->createDataContainer(op);
-            DEBUG_PRINT("BEFORE SET LENGTH");
             cont.header.length += std::min(size, 0xFFFFFFFFUL - sizeof(MTPContainerHeader));
-            DEBUG_PRINT("AFTER SET LENGTH");
             DEBUG_PRINT("TO READ: %#lx", to_read);
             cont.data = (u8 *) malloc(to_read);
             ifs.read((char *) cont.data, to_read);
-            DEBUG_PRINT("AFTER READ");
             pos += to_read;
             this->writeContainer(cont);
         }
 
-        //free(cont.data);
-        //cont.data = NULL;
-
         while (pos < size) {
             to_read = std::min(size - pos, BUF_SIZE);
             DEBUG_PRINT("TO READ: %#lx; POS: %#lx", to_read, pos);
+
             ifs.read((char *) this->write_buffer, to_read);
+
             pos += to_read;
-            Result rc = this->UsbXfer(g_endpoint_in, NULL, this->write_buffer, to_read);
-            DEBUG_PRINT("WRITE RC: %#x", rc);
+            this->UsbXfer(g_endpoint_in, NULL, this->write_buffer, to_read);
         }
 
-        DEBUG_PRINT("BEFORE SET RESP CODE");
         resp->code = ResponseOk;
-        DEBUG_PRINT("END GOOD");
     } else {
         resp->code = ResponseAccessDenied;
     }
-    DEBUG_PRINT("BEFORE CLOSE");
     ifs.close();
-    DEBUG_PRINT("AFTER CLOSE");
 }
