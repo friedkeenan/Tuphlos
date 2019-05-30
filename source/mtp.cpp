@@ -343,9 +343,13 @@ std::enable_if_t<std::is_arithmetic_v<T>, T> MTPContainer::read() {
 
 std::u16string MTPContainer::read() {
     u8 length = this->read<u8>();
-    char16_t c_str[length];
-    this->read(c_str, length);
-    std::u16string var = c_str;
+    DEBUG_PRINT("LENGTH: %#x", length);
+    std::u16string var;
+
+    for (int i=0; i<length; i++) {
+        var.push_back((char16_t) this->read<u16>());
+    }
+
     return var;
 }
 
@@ -399,6 +403,7 @@ MTPResponder::MTPResponder() {
     this->read_transferred = 0;
 
     this->session_id = 0;
+    this->send_object = {0, 0};
 }
 
 MTPResponder::~MTPResponder() {
@@ -407,16 +412,17 @@ MTPResponder::~MTPResponder() {
 
 void MTPResponder::loop() {
     DEBUG_PRINT("LOOP");
-    MTPContainer cont = this->readContainer();
+    MTPContainer op_cont = this->readContainer();
 
-    MTPOperation op = cont.toOperation();
+    MTPOperation op = op_cont.toOperation();
     DEBUG_PRINT("OPERATION: %#x %ld", op.code, op.params.size());
 
     MTPResponse resp = this->parseOperation(op);
     DEBUG_PRINT("RESPONSE: %#x %ld", resp.code, resp.params.size());
 
-    cont = this->createResponseContainer(resp);
-    this->writeContainer(cont);
+    MTPContainer *resp_cont = this->createResponseContainer(resp);
+    this->writeContainer(*resp_cont);
+    delete resp_cont;
 }
 
 void MTPResponder::insertStorage(const u32 id, const std::string drive, const std::u16string name) {
@@ -497,8 +503,11 @@ MTPContainer MTPResponder::readContainer() {
     this->read(&header, sizeof(header));
 
     MTPContainer cont(header);
-    cont.data = (u8 *) malloc(cont.header.length - sizeof(MTPContainerHeader));
-    this->read(cont.data, cont.header.length - sizeof(MTPContainerHeader));
+
+    u32 size = std::min(cont.header.length, (u32) BUF_SIZE);
+
+    cont.data = (u8 *) malloc(size - sizeof(MTPContainerHeader));
+    this->read(cont.data, size - sizeof(MTPContainerHeader));
 
     return cont;
 }
@@ -565,6 +574,12 @@ MTPResponse MTPResponder::parseOperation(MTPOperation op) {
         case OperationDeleteObject:
             this->DeleteObject(op, &resp);
             break;
+        case OperationSendObjectInfo:
+            this->SendObjectInfo(op, &resp);
+            break;
+        case OperationSendObject:
+            this->SendObject(op, &resp);
+            break;
     }
 
     DEBUG_PRINT("BEFORE RET RESP");
@@ -582,17 +597,17 @@ MTPContainer MTPResponder::createDataContainer(MTPOperation op) {
     return cont;
 }
 
-MTPContainer MTPResponder::createResponseContainer(MTPResponse resp) {
+MTPContainer *MTPResponder::createResponseContainer(MTPResponse resp) {
     MTPContainerHeader header;
     header.length = sizeof(MTPContainerHeader);
     header.type = ContainerTypeResponse;
     header.code = resp.code;
     header.transaction_id = resp.transaction_id;
 
-    MTPContainer cont(header);
+    MTPContainer *cont = new MTPContainer(header);
 
     for (auto param : resp.params) {
-        cont.write(param);
+        cont->write(param);
     }
 
     return cont;
@@ -842,7 +857,7 @@ void MTPResponder::GetObject(MTPOperation op, MTPResponse *resp) {
     fs::path path = this->object_handles[op.params[0]];
     DEBUG_PRINT("PATH: %s", path.c_str());
 
-    std::ifstream ifs(path.string(), std::ios::binary);
+    std::ifstream ifs(path, std::ios::binary);
 
     if (ifs.good()) {
         u64 size = fs::file_size(path), pos = 0;
@@ -899,5 +914,105 @@ void MTPResponder::DeleteObject(MTPOperation op, MTPResponse *resp) {
             resp->code = ResponseAccessDenied;
         else
             resp->code = ResponseOk;
+    }
+}
+
+void MTPResponder::SendObjectInfo(MTPOperation op, MTPResponse *resp) {
+    DEBUG_PRINT("SEND OBJECT INFO");
+    MTPContainer cont = this->readContainer();
+
+    auto store_info = this->storages[op.params[0]];
+    fs::path parent;
+    if (op.params[1] == 0xFFFFFFFF)
+        parent = store_info.first + ":";
+    else
+        parent = this->object_handles[op.params[1]];
+    DEBUG_PRINT("PARENT: %s", parent.c_str());
+
+    cont.read<u32>(); // Unused StorageID
+    bool is_dir = (cont.read<u16>() == FormatAssociation); // Object Format
+    DEBUG_PRINT("IS DIR: %d", is_dir);
+    cont.read<u16>(); // Unused Protection Status
+    this->send_object.second = cont.read<u32>(); // Object Compressed Size
+    DEBUG_PRINT("SIZE: %#x", this->send_object.second);
+
+    for (int i=0; i<7; i++) // A whole bunch of unused stuff
+        cont.read<u32>();
+
+    cont.read<u16>(); // Unused Association Type
+    cont.read<u32>(); // Unused Association Description
+    cont.read<u32>(); // Unused Sequence Number
+
+    std::u16string name = cont.read();
+    if (name.length() == 0) {
+        if (is_dir)
+            name = u"Untitled Folder";
+        else
+            name = u"Untitled Document";
+    }
+    DEBUG_PRINT("NAME: %s", fs::path(name).c_str());
+
+    if (is_dir) {
+        std::error_code ec;
+        fs::create_directory(parent / fs::path(name), ec);
+        if (ec.value() == 0)
+            resp->code = ResponseOk;
+        else
+            resp->code = ResponseAccessDenied;
+    } else {
+        std::ofstream ofs(parent / fs::path(name));
+
+        if (ofs.good()) {
+            ofs << "";
+            resp->code = ResponseOk;
+        } else {
+            resp->code = ResponseAccessDenied;
+        }
+        ofs.close();
+    }
+
+    if (resp->code == ResponseOk) {
+        resp->params.push_back(op.params[0]);
+        resp->params.push_back(op.params[1]);
+        u32 handle = this->getObjectHandle(parent / fs::path(name));
+        DEBUG_PRINT("HANDLE: %#x", handle);
+        this->send_object.first = handle;
+        resp->params.push_back(handle);
+    }
+}
+
+void MTPResponder::SendObject(MTPOperation op, MTPResponse *resp) {
+    if (this->send_object.first == 0) {
+        resp->code = ResponseNoValidObjectInfo;
+    } else {
+        fs::path path = this->object_handles[this->send_object.first];
+
+        std::ofstream ofs(path, std::ios::binary);
+
+        if (ofs.good()) {
+            u64 size, pos = 0, to_write;
+
+            /*  Put this in its own scope so that the MTPContainer gets dealt with */
+            {
+                MTPContainer cont = this->readContainer();
+                size = cont.header.length - sizeof(MTPContainerHeader);
+                to_write = std::min(cont.header.length, (u32) BUF_SIZE) - sizeof(MTPContainerHeader);
+                ofs.write((char *) cont.data, to_write);
+                pos += to_write;
+            }
+
+            while (pos < size) {
+                to_write = std::min(size - pos, BUF_SIZE);
+                this->UsbXfer(g_endpoint_out, NULL, this->read_buffer, to_write);
+                ofs.write((char *) this->read_buffer, to_write);
+                pos += to_write;
+            }
+
+            this->send_object = {0, 0};
+
+            resp->code = ResponseOk;
+        } else {
+            resp->code = ResponseAccessDenied;
+        }
     }
 }

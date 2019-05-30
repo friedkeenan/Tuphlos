@@ -65,7 +65,7 @@ enum MTPResponseCode : u16 {
     ResponsePartialDeletion,
     ResponseStoreNotAvailable,
     ResponseSpecificationByFormatUnsupported,
-    ResponseNovalidObjectInfo,
+    ResponseNoValidObjectInfo,
     ResponseInvalidCodeFormat,
     ResponseUnknownVendorCode,
     ResponseCaptureAlreadyTerminated,
@@ -236,11 +236,12 @@ class MTPResponder {
 
         MTPContainer createDataContainer(MTPOperation op);
         MTPResponse parseOperation(MTPOperation op);
-        MTPContainer createResponseContainer(MTPResponse resp);
+        MTPContainer* createResponseContainer(MTPResponse resp);
 
         u32 session_id;
         std::unordered_map<u32, std::pair<std::string, std::u16string>> storages;
         std::unordered_map<u32, fs::path> object_handles;
+        std::pair<u32, u32> send_object;
 
         u32 getObjectHandle(fs::path object);
 
@@ -254,4 +255,6 @@ class MTPResponder {
         void GetDevicePropValue(MTPOperation op, MTPResponse *resp);
         void GetObject(MTPOperation op, MTPResponse *resp);
         void DeleteObject(MTPOperation op, MTPResponse *resp);
+        void SendObjectInfo(MTPOperation op, MTPResponse *resp);
+        void SendObject(MTPOperation op, MTPResponse *resp);
 };
