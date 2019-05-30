@@ -160,6 +160,35 @@ enum MTPObjectFormatCode : u16 { // I would add all of them but I don't hate mys
     FormatAssociation,
 };
 
+enum MTPObjectPropCode : u16 {
+    PropertyFileName = 0xDC07,
+};
+
+enum MTPTypeCode : u16 {
+    TypeUndefined,
+    TypeS8,
+    TypeU8,
+    TypeS16,
+    TypeU16,
+    TypeS32,
+    TypeU32,
+    TypeS64,
+    TypeU64,
+    TypeS128,
+    TypeU128,
+    TypeAS8 = 0x4001,
+    TypeAU8,
+    TypeAS16,
+    TypeAU16,
+    TypeAS32,
+    TypeAU32,
+    TypeAS64,
+    TypeAU64,
+    TypeAS128,
+    TypeAU128,
+    TypeString = 0xFFFF,
+};
+
 enum MTPContainerType : u16 {
     ContainerTypeUndefined,
     ContainerTypeOperation,
@@ -236,12 +265,12 @@ class MTPResponder {
 
         MTPContainer createDataContainer(MTPOperation op);
         MTPResponse parseOperation(MTPOperation op);
-        MTPContainer* createResponseContainer(MTPResponse resp);
+        MTPContainer *createResponseContainer(MTPResponse resp);
 
         u32 session_id;
         std::unordered_map<u32, std::pair<std::string, std::u16string>> storages;
         std::unordered_map<u32, fs::path> object_handles;
-        std::pair<u32, u32> send_object;
+        u32 send_object_handle;
 
         u32 getObjectHandle(fs::path object);
 
@@ -257,4 +286,7 @@ class MTPResponder {
         void DeleteObject(MTPOperation op, MTPResponse *resp);
         void SendObjectInfo(MTPOperation op, MTPResponse *resp);
         void SendObject(MTPOperation op, MTPResponse *resp);
+        void GetObjectPropsSupported(MTPOperation op, MTPResponse *resp);
+        void GetObjectPropDesc(MTPOperation op, MTPResponse *resp);
+        void SetObjectPropValue(MTPOperation op, MTPResponse *resp);
 };

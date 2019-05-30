@@ -403,7 +403,7 @@ MTPResponder::MTPResponder() {
     this->read_transferred = 0;
 
     this->session_id = 0;
-    this->send_object = {0, 0};
+    this->send_object_handle = 0;
 }
 
 MTPResponder::~MTPResponder() {
@@ -580,6 +580,15 @@ MTPResponse MTPResponder::parseOperation(MTPOperation op) {
         case OperationSendObject:
             this->SendObject(op, &resp);
             break;
+        case OperationGetObjectPropsSupported:
+            this->GetObjectPropsSupported(op, &resp);
+            break;
+        case OperationGetObjectPropDesc:
+            this->GetObjectPropDesc(op, &resp);
+            break;
+        case OperationSetObjectPropValue:
+            this->SetObjectPropValue(op, &resp);
+            break;
     }
 
     DEBUG_PRINT("BEFORE RET RESP");
@@ -634,6 +643,9 @@ void MTPResponder::GetDeviceInfo(MTPOperation op, MTPResponse *resp) {
         OperationSendObjectInfo,
         OperationSendObject,
         OperationGetDevicePropValue,
+        OperationGetObjectPropsSupported,
+        OperationGetObjectPropDesc,
+        OperationSetObjectPropValue,
     });
     cont.write(operations_supported);
 
@@ -738,8 +750,6 @@ void MTPResponder::GetObjectHandles(MTPOperation op, MTPResponse *resp) {
 
     for (const auto & entry : fs::directory_iterator(dir)) {
         fs::path path = entry.path();
-        if (path == "sdmc:/hbmenu.nro")
-            continue;
 
         u32 handle = this->getObjectHandle(path);
         DEBUG_PRINT("OBJECT: 0x%x %s", handle, path.c_str());
@@ -933,8 +943,7 @@ void MTPResponder::SendObjectInfo(MTPOperation op, MTPResponse *resp) {
     bool is_dir = (cont.read<u16>() == FormatAssociation); // Object Format
     DEBUG_PRINT("IS DIR: %d", is_dir);
     cont.read<u16>(); // Unused Protection Status
-    this->send_object.second = cont.read<u32>(); // Object Compressed Size
-    DEBUG_PRINT("SIZE: %#x", this->send_object.second);
+    cont.read<u32>(); // Object Compressed Size
 
     for (int i=0; i<7; i++) // A whole bunch of unused stuff
         cont.read<u32>();
@@ -976,16 +985,16 @@ void MTPResponder::SendObjectInfo(MTPOperation op, MTPResponse *resp) {
         resp->params.push_back(op.params[1]);
         u32 handle = this->getObjectHandle(parent / fs::path(name));
         DEBUG_PRINT("HANDLE: %#x", handle);
-        this->send_object.first = handle;
+        this->send_object_handle = handle;
         resp->params.push_back(handle);
     }
 }
 
 void MTPResponder::SendObject(MTPOperation op, MTPResponse *resp) {
-    if (this->send_object.first == 0) {
+    if (this->send_object_handle == 0) {
         resp->code = ResponseNoValidObjectInfo;
     } else {
-        fs::path path = this->object_handles[this->send_object.first];
+        fs::path path = this->object_handles[this->send_object_handle];
 
         std::ofstream ofs(path, std::ios::binary);
 
@@ -1008,11 +1017,80 @@ void MTPResponder::SendObject(MTPOperation op, MTPResponse *resp) {
                 pos += to_write;
             }
 
-            this->send_object = {0, 0};
+            this->send_object_handle = 0;
 
             resp->code = ResponseOk;
         } else {
             resp->code = ResponseAccessDenied;
         }
+    }
+}
+
+void MTPResponder::GetObjectPropsSupported(MTPOperation op, MTPResponse *resp) {
+    MTPContainer cont = this->createDataContainer(op);
+
+    std::vector<u16> obj_props_supported = {
+        PropertyFileName,
+    };
+    cont.write(obj_props_supported);
+
+    this->writeContainer(cont);
+
+    resp->code = ResponseOk;
+}
+
+void MTPResponder::GetObjectPropDesc(MTPOperation op, MTPResponse *resp) {
+    resp->code = ResponseInvalidObjectPropCode;
+
+    switch(op.params[0]) {
+        case PropertyFileName:
+            MTPContainer cont = this->createDataContainer(op);
+
+            cont.write<u16>(PropertyFileName); // Property Code
+            cont.write<u16>(TypeString); // Datatype
+            cont.write<u8>(1); // Get/Set
+
+            if (op.params[1] == FormatAssociation)
+                cont.write(u"Untitled Folder"); // Default Value
+            else
+                cont.write(u"Untitled Document");
+
+            cont.write<u32>(0); // Group Code
+            cont.write<u8>(0); // Form Flag
+
+            this->writeContainer(cont);
+            resp->code = ResponseOk;
+    }
+}
+
+void MTPResponder::SetObjectPropValue(MTPOperation op, MTPResponse *resp) {
+    resp->code = ResponseInvalidObjectPropValue;
+
+    switch (op.params[1]) {
+        case PropertyFileName:
+            fs::path path = this->object_handles[op.params[0]];
+            DEBUG_PRINT("PATH: %s", path.c_str());
+            MTPContainer cont = this->readContainer();
+
+            std::u16string name = cont.read();
+            if (name.length() == 0) {
+                if (fs::is_directory(path))
+                    name = u"Untitled Folder";
+                else
+                    name = u"Untitled Document";
+            }
+            DEBUG_PRINT("NAME: %s", fs::path(name).c_str());
+
+            std::error_code ec;
+            fs::path parent = path.parent_path();
+            fs::rename(path, parent / name, ec);
+            if (ec.value() == 0) {
+                this->object_handles[op.params[0]] = parent / name;
+                resp->code = ResponseOk;
+            }
+            else
+                resp->code = ResponseAccessDenied;
+
+            break;
     }
 }
