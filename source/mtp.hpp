@@ -293,4 +293,6 @@ class MTPResponder {
         void SetObjectPropValue(MTPOperation op, MTPResponse *resp);
         void GetObjectPropValue(MTPOperation op, MTPResponse *resp);
         void GetPartialObject(MTPOperation op, MTPResponse *resp);
+        void CopyObject(MTPOperation op, MTPResponse *resp);
+        void MoveObject(MTPOperation op, MTPResponse *resp);
 };

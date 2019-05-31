@@ -595,6 +595,11 @@ MTPResponse MTPResponder::parseOperation(MTPOperation op) {
         case OperationGetObjectPropValue:
             this->GetObjectPropValue(op, &resp);
             break;
+        case OperationMoveObject:
+            this->MoveObject(op, &resp);
+            break;
+        case OperationCopyObject:
+            this->CopyObject(op, &resp);
     }
 
     DEBUG_PRINT("BEFORE RET RESP");
@@ -654,6 +659,8 @@ void MTPResponder::GetDeviceInfo(MTPOperation op, MTPResponse *resp) {
         OperationSetObjectPropValue,
         OperationGetPartialObject,
         OperationGetObjectPropValue,
+        OperationMoveObject,
+        OperationCopyObject,
     });
     cont.write(operations_supported);
 
@@ -1201,4 +1208,52 @@ void MTPResponder::GetPartialObject(MTPOperation op, MTPResponse *resp) {
         resp->code = ResponseAccessDenied;
     }
     ifs.close();
+}
+
+void MTPResponder::MoveObject(MTPOperation op, MTPResponse *resp) {
+    auto store_info = this->storages[op.params[1]];
+
+    fs::path parent;
+    if (op.params[2] == 0)
+        parent = store_info.first + ":";
+    else
+        parent = this->object_handles[op.params[2]];
+
+    fs::path path = this->object_handles[op.params[0]];
+    DEBUG_PRINT("PATH: %s; PARENT: %s", path.c_str(), parent.c_str());
+
+    std::error_code ec;
+    fs::rename(path, parent / path.filename(), ec);
+
+    if (ec.value() == 0)
+        resp->code = ResponseOk;
+    else
+        resp->code = ResponseAccessDenied;
+}
+
+void MTPResponder::CopyObject(MTPOperation op, MTPResponse *resp) {
+    auto store_info = this->storages[op.params[1]];
+
+    fs::path parent;
+    if (op.params[2] == 0)
+        parent = store_info.first + ":";
+    else
+        parent = this->object_handles[op.params[2]];
+
+    fs::path path = this->object_handles[op.params[0]];
+    DEBUG_PRINT("PATH: %s; PARENT: %s", path.c_str(), parent.c_str());
+
+    fs::path new_path = parent / path.filename();
+    
+    std::ifstream src(path, std::ios::binary);
+    std::ofstream dst(new_path, std::ios::binary);
+
+    if (src.good() && dst.good()) {
+        dst << src.rdbuf();
+
+        resp->params.push_back(this->getObjectHandle(new_path));
+        resp->code = ResponseOk;
+    } else {
+        resp->code = ResponseAccessDenied;
+    }
 }
