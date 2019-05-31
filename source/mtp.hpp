@@ -161,6 +161,8 @@ enum MTPObjectFormatCode : u16 { // I would add all of them but I don't hate mys
 };
 
 enum MTPObjectPropCode : u16 {
+    PropertyProtectionStatus = 0xDC01,
+    PropertyObjectSize = 0xDC04,
     PropertyFileName = 0xDC07,
 };
 
@@ -289,4 +291,6 @@ class MTPResponder {
         void GetObjectPropsSupported(MTPOperation op, MTPResponse *resp);
         void GetObjectPropDesc(MTPOperation op, MTPResponse *resp);
         void SetObjectPropValue(MTPOperation op, MTPResponse *resp);
+        void GetObjectPropValue(MTPOperation op, MTPResponse *resp);
+        void GetPartialObject(MTPOperation op, MTPResponse *resp);
 };

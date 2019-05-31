@@ -589,6 +589,12 @@ MTPResponse MTPResponder::parseOperation(MTPOperation op) {
         case OperationSetObjectPropValue:
             this->SetObjectPropValue(op, &resp);
             break;
+        case OperationGetPartialObject:
+            this->GetPartialObject(op, &resp);
+            break;
+        case OperationGetObjectPropValue:
+            this->GetObjectPropValue(op, &resp);
+            break;
     }
 
     DEBUG_PRINT("BEFORE RET RESP");
@@ -646,6 +652,8 @@ void MTPResponder::GetDeviceInfo(MTPOperation op, MTPResponse *resp) {
         OperationGetObjectPropsSupported,
         OperationGetObjectPropDesc,
         OperationSetObjectPropValue,
+        OperationGetPartialObject,
+        OperationGetObjectPropValue,
     });
     cont.write(operations_supported);
 
@@ -714,7 +722,11 @@ void MTPResponder::GetStorageInfo(MTPOperation op, MTPResponse *resp) {
         cont.write<u16>(1);
 
     cont.write<u16>(2); // Filesystem Type
-    cont.write<u16>(2); // Access Capability
+
+    if (info.first == "sdmc")
+        cont.write<u16>(0); // Access Capability
+    else
+        cont.write<u16>(2);
 
     struct statvfs stat;
     int rc = statvfs((info.first + ":/").c_str(), &stat);
@@ -909,7 +921,12 @@ void MTPResponder::DeleteObject(MTPOperation op, MTPResponse *resp) {
         fs::path path = this->object_handles[op.params[0]];
         DEBUG_PRINT("PATH: %s", path.c_str());
         std::error_code ec;
-        if (fs::is_directory(path)) {
+        bool is_dir = fs::is_directory(path, ec);
+        if (ec.value() != 0) {
+            resp->code = ResponseAccessDenied;
+            return;
+        }
+        if (is_dir) {
             fs::remove_all(path, ec);
             if (rmdir(path.c_str()) == 0)
                 ec.clear();
@@ -1031,6 +1048,7 @@ void MTPResponder::GetObjectPropsSupported(MTPOperation op, MTPResponse *resp) {
 
     std::vector<u16> obj_props_supported = {
         PropertyFileName,
+        PropertyObjectSize,
     };
     cont.write(obj_props_supported);
 
@@ -1042,8 +1060,8 @@ void MTPResponder::GetObjectPropsSupported(MTPOperation op, MTPResponse *resp) {
 void MTPResponder::GetObjectPropDesc(MTPOperation op, MTPResponse *resp) {
     resp->code = ResponseInvalidObjectPropCode;
 
-    switch(op.params[0]) {
-        case PropertyFileName:
+    switch (op.params[0]) {
+        case PropertyFileName: {
             MTPContainer cont = this->createDataContainer(op);
 
             cont.write<u16>(PropertyFileName); // Property Code
@@ -1060,11 +1078,25 @@ void MTPResponder::GetObjectPropDesc(MTPOperation op, MTPResponse *resp) {
 
             this->writeContainer(cont);
             resp->code = ResponseOk;
+        } break;
+        case PropertyObjectSize: {
+            MTPContainer cont = this->createDataContainer(op);
+
+            cont.write<u16>(PropertyObjectSize);
+            cont.write<u16>(TypeU64);
+            cont.write<u8>(0);
+            cont.write<u64>(0);
+            cont.write<u32>(0);
+            cont.write<u8>(0);
+
+            this->writeContainer(cont);
+            resp->code = ResponseOk;
+        } break;
     }
 }
 
 void MTPResponder::SetObjectPropValue(MTPOperation op, MTPResponse *resp) {
-    resp->code = ResponseInvalidObjectPropValue;
+    resp->code = ResponseInvalidObjectPropCode;
 
     switch (op.params[1]) {
         case PropertyFileName:
@@ -1093,4 +1125,80 @@ void MTPResponder::SetObjectPropValue(MTPOperation op, MTPResponse *resp) {
 
             break;
     }
+}
+
+void MTPResponder::GetObjectPropValue(MTPOperation op, MTPResponse *resp) {
+    resp->code = ResponseInvalidObjectPropCode;
+
+    switch (op.params[1]) {
+        case PropertyFileName: {
+            fs::path path = this->object_handles[op.params[0]];
+            DEBUG_PRINT("PATH: %s", path.c_str());
+
+            MTPContainer cont = this->createDataContainer(op);
+            cont.write(path.filename().u16string());
+            this->writeContainer(cont);
+            resp->code = ResponseOk;
+        } break;
+        case PropertyObjectSize: {
+            fs::path path = this->object_handles[op.params[0]];
+            DEBUG_PRINT("PATH: %s", path.c_str());
+
+            MTPContainer cont = this->createDataContainer(op);
+
+            std::error_code ec;
+            u64 size = fs::file_size(path, ec);
+            if (ec.value() != 0)
+                size = 0;
+            cont.write(size);
+
+            this->writeContainer(cont);
+            resp->code = ResponseOk;
+        } break;
+    }
+}
+
+void MTPResponder::GetPartialObject(MTPOperation op, MTPResponse *resp) {
+    fs::path path = this->object_handles[op.params[0]];
+    DEBUG_PRINT("PATH: %s", path.c_str());
+
+    std::ifstream ifs(path, std::ios::binary);
+
+    if (ifs.good()) {
+        u64 size = op.params[2], pos = 0;
+        if (size == 0xFFFFFFFF)
+            size = fs::file_size(path);
+        DEBUG_PRINT("SIZE: %#lx", size);
+
+        ifs.seekg(op.params[1]);
+
+        u64 to_read = std::min(size, BUF_SIZE - sizeof(MTPContainerHeader));
+
+        /* Put this in its own scope so that the MTPContainer gets dealt with */
+        {
+            MTPContainer cont = this->createDataContainer(op);
+            cont.header.length += std::min(size, 0xFFFFFFFFUL - sizeof(MTPContainerHeader));
+            DEBUG_PRINT("TO READ: %#lx", to_read);
+            cont.data = (u8 *) malloc(to_read);
+            ifs.read((char *) cont.data, to_read);
+            pos += to_read;
+            this->writeContainer(cont);
+        }
+
+        while (pos < size) {
+            to_read = std::min(size - pos, BUF_SIZE);
+            DEBUG_PRINT("TO READ: %#lx; POS: %#lx", to_read, pos);
+
+            ifs.read((char *) this->write_buffer, to_read);
+
+            pos += to_read;
+            this->UsbXfer(g_endpoint_in, NULL, this->write_buffer, to_read);
+        }
+
+        resp->params.push_back((u32) pos);
+        resp->code = ResponseOk;
+    } else {
+        resp->code = ResponseAccessDenied;
+    }
+    ifs.close();
 }
