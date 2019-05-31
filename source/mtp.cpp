@@ -724,7 +724,7 @@ void MTPResponder::GetStorageInfo(MTPOperation op, MTPResponse *resp) {
     auto info = this->storages[op.params[0]];
     
     if (info.first == "sdmc")
-        cont.write<u16>(2); // Storage type
+        cont.write<u16>(4); // Storage type
     else 
         cont.write<u16>(1);
 
