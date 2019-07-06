@@ -19,7 +19,7 @@ int main(int argc, char **argv) {
     responder.insertStorage(0x00010001, "sdmc", u"SD Card");
 
     FsFileSystem fs;
-    fsOpenBisFileSystem(&fs, 30, "");
+    fsOpenBisFileSystem(&fs, FsBisStorageId_User, "");
     fsdevMountDevice("user", fs);
     responder.insertStorage(0x00020001, "user", u"User");
 
